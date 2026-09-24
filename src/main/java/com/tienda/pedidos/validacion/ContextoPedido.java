@@ -9,9 +9,6 @@ public class ContextoPedido {
     private double subtotal;
     private boolean rechazado = false;
     private String motivoRechazo;
-    
-    // Campo agregado para simular el antipatrón Golden Hammer
-    private double descuentoCampana = 0.0;
 
     public ContextoPedido(PedidoRequest request) {
         this.request = request;
@@ -45,19 +42,8 @@ public class ContextoPedido {
         return motivoRechazo;
     }
 
-    public void rechazar(String motivo) {
+    public void rechazar(String motivoRechazo) {
         this.rechazado = true;
-        this.motivoRechazo = motivo;
-    }
-
-    public double getDescuentoCampana() {
-        return descuentoCampana;
-    }
-
-    public void aplicarDescuentoCampana(double valor) {
-        // La regla de negocio indica que el mayor descuento gana
-        if (valor > this.descuentoCampana) {
-            this.descuentoCampana = valor;
-        }
+        this.motivoRechazo = motivoRechazo;
     }
 }

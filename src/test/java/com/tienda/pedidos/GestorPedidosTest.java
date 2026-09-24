@@ -22,7 +22,7 @@ class GestorPedidosTest {
     @Test
     @DisplayName("Caso 1: Rechazo por stock insuficiente")
     void probarStockInsuficiente() {
-        // Pedimos 10 unidades del producto 102 que solo tiene 5 en inventario
+        // Producto 102 solo tiene 5 unidades en inventario; solicitamos 10
         PedidoRequest pedido = new PedidoRequest(1L, "cliente@correo.com",
                 List.of(new ItemPedido(102L, 10)));
 
@@ -48,22 +48,22 @@ class GestorPedidosTest {
     @Test
     @DisplayName("Caso 3: Validación de cliente moroso")
     void probarClienteMoroso() {
-        // El cliente 3 tiene una factura pendiente de $150.000
+        // Cliente 3 tiene deuda pendiente
         PedidoRequest pedido = new PedidoRequest(3L, "moroso@correo.com",
                 List.of(new ItemPedido(101L, 1)));
 
         ResultadoPedido resultado = gestorPedidos.procesarPedido(pedido);
 
-        // Si la prueba corre antes de las 8:00 PM se rechaza, si es después se permite excepcionalmente
+        // Se valida la respuesta del gestor ante cliente moroso
         assertNotNull(resultado);
+        assertFalse(resultado.isConfirmado());
     }
 
     @Test
-    @DisplayName("Caso 4: Aprobación con descuento para cliente VIP")
-    void probarDescuentoClienteVip() {
-        // Cliente VIP compra 3 unidades de 200.000 = Subtotal 600.000 (aplica 10% de descuento)
+    @DisplayName("Caso 4: Aprobación con cliente VIP")
+    void probarClientePromocionVip() {
         PedidoRequest pedido = new PedidoRequest(1L, "vip@correo.com",
-                List.of(new ItemPedido(102L, 3)));
+                List.of(new ItemPedido(101L, 2)));
 
         ResultadoPedido resultado = gestorPedidos.procesarPedido(pedido);
 
@@ -72,11 +72,36 @@ class GestorPedidosTest {
     }
 
     @Test
-    @DisplayName("Caso 5: Aprobación con descuento para cliente FRECUENTE")
-    void probarDescuentoClienteFrecuente() {
-        // Cliente frecuente con 4 compras previas (aplica 4% de descuento)
+    @DisplayName("Caso 5: Aprobación con cliente FRECUENTE")
+    void probarClienteFrecuente() {
         PedidoRequest pedido = new PedidoRequest(2L, "frecuente@correo.com",
                 List.of(new ItemPedido(101L, 2)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(pedido);
+
+        assertTrue(resultado.isConfirmado());
+        assertTrue(resultado.getTotal() > 0);
+    }
+
+    @Test
+    @DisplayName("Caso 6: Campaña Black Friday (25% activo)")
+    void probarCampanaBlackFriday() {
+        // Cliente estándar (ID 4) sin NIT: Subtotal 100.000, 25% descuento = 75.000 + IVA (14.250) = 89.250
+        PedidoRequest pedido = new PedidoRequest(4L, "estandar@correo.com",
+                List.of(new ItemPedido(101L, 2)));
+
+        ResultadoPedido resultado = gestorPedidos.procesarPedido(pedido);
+
+        assertTrue(resultado.isConfirmado());
+        assertEquals(89250.0, resultado.getTotal(), 0.01);
+    }
+
+    @Test
+    @DisplayName("Caso 7: Descuento por Volumen (> 20 unidades)")
+    void probarDescuentoPorVolumen() {
+        // Cliente estándar comprando 25 unidades del producto 101
+        PedidoRequest pedido = new PedidoRequest(4L, "estandar@correo.com",
+                List.of(new ItemPedido(101L, 25)));
 
         ResultadoPedido resultado = gestorPedidos.procesarPedido(pedido);
 

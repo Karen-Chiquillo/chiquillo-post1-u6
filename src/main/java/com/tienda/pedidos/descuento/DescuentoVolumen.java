@@ -1,19 +1,18 @@
-package com.tienda.pedidos.validacion;
+package com.tienda.pedidos.descuento;
 
 import com.tienda.pedidos.dto.ItemPedido;
+import com.tienda.pedidos.validacion.ContextoPedido;
 import org.springframework.stereotype.Component;
 
 @Component
-public class PromocionVolumen extends ValidadorPedido {
+public class DescuentoVolumen implements EstrategiaDescuento {
 
     @Override
-    protected void ejecutar(ContextoPedido contexto) {
+    public double calcular(ContextoPedido contexto) {
         int totalUnidades = contexto.getRequest().getItems().stream()
                 .mapToInt(ItemPedido::getCantidad)
                 .sum();
 
-        if (totalUnidades > 20) {
-            contexto.aplicarDescuentoCampana(0.12);
-        }
+        return totalUnidades > 20 ? 0.12 : 0.0;
     }
 }
