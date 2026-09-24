@@ -19,7 +19,7 @@ La clase concentra **6 razones distintas para cambiar** dentro de su único mét
 1. **Validación de stock e inventario (Líneas 38-45):** Comprobación de existencia de ítems con consulta directa a la base de datos mediante JDBC.
 2. **Validación de cliente y política de mora (Líneas 48-73):** Consulta de existencia de cliente, cálculo de saldos en facturas y evaluación de regla horaria de corte.
 3. **Cálculo de subtotal y consulta de precios (Líneas 76-82):** Itera la lista de ítems disparando una consulta SQL individual por cada producto.
-4. **Cálculo de descuentos comerciales (Líneas 85-103):** Lógica de negocio anidada y condicionada por tipo de clie nte, montos y cantidad acumulada de pedidos.
+4. **Cálculo de descuentos comerciales (Líneas 85-103):** Lógica de negocio anidada y condicionada por tipo de cliente, montos y cantidad acumulada de pedidos.
 5. **Persistencia transaccional directa vía JDBC (Líneas 108-124):** Inserción manual de registros en `pedidos` y `detalle_pedido`, y mutación directa de `inventario` sin abstracción de repositorio.
 6. **Construcción y despacho de notificaciones (Líneas 126-142):** Generación procedimental del texto del correo electrónico mediante `StringBuilder` y acoplamiento directo con `EmailService`.
 
@@ -132,11 +132,33 @@ this.primerValidador = stock.encadenar(cliente)
 
 ---
 
-#### 4. Estado Actual del Diseño, Solución Propuesta y Alternativas Descartadas
-* **Estado actual del diseño:** El sistema compila y calcula las tarifas comerciales esperadas, pero incurre en el antipatrón Golden Hammer al forzar el uso de la cadena de validación para resolver reglas comerciales sin orden estricto.
-* **Patrón a aplicar (Próxima acción - Paso 7):** Refactorizar las tres promociones para extraerlas de la cadena y migrarlas al patrón Strategy implementando `EstrategiaDescuento`, coordinadas por `CalculadorDescuentoFinal` mediante composición funcional pura.
-* **Alternativa descartada:** Conservar los eslabones dentro de la cadena `ValidadorPedido` utilizando banderas booleanas o acumuladores condicionales. Se descarta porque perpetúa el Golden Hammer, viola la responsabilidad única de la validación y mantiene mutaciones innecesarias sobre `ContextoPedido`.
-* **Prevención de Lava Flow:** En el Paso 7 se eliminarán físicamente del repositorio las clases obsoletas y el campo mutable mediante `git rm`, documentando su evolución únicamente en el historial de Git
+#### 4. Patrón Aplicado, Refactorización y Alternativas Descartadas
+
+* **Patrón de diseño aplicado:** Strategy, modelando las campañas comerciales como estrategias polimórficas independientes (`DescuentoBlackFriday`, `DescuentoCorporativo`, `DescuentoVolumen`) que implementan `EstrategiaDescuento`.
+* **Coordinación mediante `CalculadorDescuentoFinal.java` (Líneas 21-29):**  
+  Se introdujo este componente especializado para evaluar en paralelo la estrategia por tipo de cliente y las campañas activas mediante Streams de Java, seleccionando el beneficio más favorable sin recurrir a efectos colaterales ni mutaciones sobre `ContextoPedido`:
+```java
+double porTipoCliente = selectorPorCliente.seleccionar(contexto.getTipoCliente()).calcular(contexto);
+double porCampana = campanas.stream()
+        .mapToDouble(estrategia -> estrategia.calcular(contexto))
+        .max()
+        .orElse(0.0);
+return Math.max(porTipoCliente, porCampana);
+```
+* **Restauración de Cohesión en la Cadena:** `ValidadorPedido` conserva única y exclusivamente los eslabones `ValidadorStock` y `ValidadorCliente`, devolviéndole a la cadena su propósito original de corte y validación.
+* **Alternativa descartada:** Conservar los eslabones dentro de la cadena `ValidadorPedido` utilizando acumuladores o banderas de control. Se descartó por perpetuar el Golden Hammer y forzar mutabilidad procedural innecesaria.
+* **Prevención de Lava Flow:** Las clases `PromocionBlackFriday`, `PromocionCorporativo`, `PromocionVolumen` y el método `aplicarDescuentoCampana` fueron eliminados físicamente del proyecto mediante `git rm`. No se dejaron clases huérfanas ni código comentado "por si acaso", respaldando el historial exclusivamente en los commits de Git.
+
+---
+
+#### 5. Comparación de la Salida del Sistema — Parte 2 (Golden Hammer vs. Strategy Refactorizado)
+
+| Escenario Promocional | Entrada de Datos | Salida con Golden Hammer (Cadena) | Salida Corregida con Strategy | Estado |
+| :--- | :--- | :--- | :--- | :---: |
+| **Campaña Black Friday** | Cliente estándar (ID 4), 2 productos 101 | Total: $89.250 (Descuento 25%) | Total: $89.250 (Descuento 25%) | Idéntico |
+| **Cliente Corporativo** | Cliente con NIT (ID 1), compra estándar | Descuento 10% aplicado | Descuento 10% aplicado | Idéntico |
+| **Descuento por Volumen** | Cliente estándar (ID 4), 25 unidades | Total con descuento 12% | Total con descuento 12% | Idéntico |
+| **Prevalencia de beneficio** | Cliente VIP con Black Friday activo | Aplica 25% (mayor descuento) | Aplica 25% (mayor descuento) | Idéntico |
 
 ---
 
@@ -167,4 +189,4 @@ this.primerValidador = stock.encadenar(cliente)
 ---
 
 ## Conclusiones
-La refactorización de `GestorPedidos` demuestra la importancia de aplicar el Principio de Responsabilidad Única (SRP) para erradicar el antipatrón God Object, reduciendo el acoplamiento y distribuyendo el ciclo de vida del pedido en capas especializadas. Asimismo, la eliminación de Spaghetti Code mediante el desacoplamiento de validaciones en Chain of Responsibility y reglas de negocio en Strategy restaura el principio Abierto/Cerrado (OCP), facilitando la extensibilidad sin riesgo de regresión funcional.
+El desarrollo de esta actividad permitió comprobar que separar responsabilidades no es solo una buena práctica teórica, sino una necesidad real para que el código sea fácil de entender, modificar y probar. En la primera parte, transformar el código desordenado de `GestorPedidos` en clases independientes demostró cómo los patrones de diseño ayudan a resolver problemas complejos manteniendo intacto el funcionamiento del sistema. Por otro lado, la corrección del *Golden Hammer* en la segunda parte dejó claro que no se debe reutilizar una solución solo porque funcionó antes; cada requerimiento exige evaluar si realmente necesita una secuencia con corte o reglas independientes. Finalmente, eliminar por completo las clases que ya no se usaban evitó acumular código muerto (*Lava Flow*), delegando el registro histórico a Git.
