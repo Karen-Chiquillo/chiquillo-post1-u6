@@ -19,7 +19,7 @@ La clase concentra **6 razones distintas para cambiar** dentro de su único mét
 1. **Validación de stock e inventario (Líneas 38-45):** Comprobación de existencia de ítems con consulta directa a la base de datos mediante JDBC.
 2. **Validación de cliente y política de mora (Líneas 48-73):** Consulta de existencia de cliente, cálculo de saldos en facturas y evaluación de regla horaria de corte.
 3. **Cálculo de subtotal y consulta de precios (Líneas 76-82):** Itera la lista de ítems disparando una consulta SQL individual por cada producto.
-4. **Cálculo de descuentos comerciales (Líneas 85-103):** Lógica de negocio anidada y condicionada por tipo de cliente, montos y cantidad acumulada de pedidos.
+4. **Cálculo de descuentos comerciales (Líneas 85-103):** Lógica de negocio anidada y condicionada por tipo de clie nte, montos y cantidad acumulada de pedidos.
 5. **Persistencia transaccional directa vía JDBC (Líneas 108-124):** Inserción manual de registros en `pedidos` y `detalle_pedido`, y mutación directa de `inventario` sin abstracción de repositorio.
 6. **Construcción y despacho de notificaciones (Líneas 126-142):** Generación procedimental del texto del correo electrónico mediante `StringBuilder` y acoplamiento directo con `EmailService`.
 
@@ -73,8 +73,70 @@ Esta concentración de responsabilidades en 144 líneas impide modificar una reg
 
 ---
 
-### Parte 2 — Crecimiento del proyecto
-*(Esta sección se documentará al completar la fase de simulación de promociones)*.
+### Parte 2 — Crecimiento del proyecto: Diagnóstico de Golden Hammer
+
+#### 1. Diagnóstico del Antipatrón
+**Antipatrón identificado:** Golden Hammer (Martillo de Oro), con riesgo latente de Lava Flow.
+
+Las tres campañas comerciales (`Black Friday`, `Corporativo`, `Volumen`) se implementaron como eslabones adicionales dentro de la cadena de validación existente. Se reutilizó *Chain of Responsibility* únicamente porque ya funcionaba en la Parte 1 y los eslabones sabían conectarse entre sí, sin analizar si el nuevo requerimiento correspondía conceptualmente a una cadena de validación.
+
+---
+
+#### 2. Evidencia Concreta Citada del Código
+
+* **Violación de contrato en `PromocionBlackFriday.java` (Líneas 11-19):**
+  Hereda de `ValidadorPedido`, pero jamás invoca `contexto.rechazar(...)`. La clase no valida integridad ni decide si el flujo continúa; solo se engancha a la cadena para escribir un valor numérico:
+```java
+@Override
+protected void ejecutar(ContextoPedido contexto) {
+    if (campanaActiva) {
+        contexto.aplicarDescuentoCampana(0.25);
+    }
+}
+```
+  *(El mismo vicio de diseño se repite en `PromocionCorporativo.java` líneas 14-25 y `PromocionVolumen.java` líneas 10-17)*.
+
+* **Mutación de estado compartido en `ContextoPedido.java` (Líneas 57-62):**
+  Se introdujo un campo mutable para que los eslabones compitan proceduralmente por sobreescribirlo:
+```java
+private double descuentoCampana = 0.0;
+
+public void aplicarDescuentoCampana(double valor) {
+    if (valor > this.descuentoCampana) {
+        this.descuentoCampana = valor;
+    }
+}
+```
+
+* **Encadenamiento artificial en `GestorPedidos.java` (Líneas 34-45):**
+  Se conectan en una misma secuencia validaciones críticas de negocio con cálculos cuantitativos de descuentos:
+```java
+this.primerValidador = stock.encadenar(cliente)
+                            .encadenar(blackFriday)
+                            .encadenar(corporativo)
+                            .encadenar(volumen);
+```
+
+---
+
+#### 3. Respuestas a las Preguntas Guía del Post-contenido
+
+1. **¿Existe dependencia de orden o corte anticipado entre las campañas?**
+   No. A diferencia de `ValidadorStock` y `ValidadorCliente` (donde la falta de stock detiene el flujo y evita consultar deudas a la base de datos), el orden de evaluación de las promociones no altera el total final. Evaluar volumen antes de corporativo produce exactamente el mismo descuento.
+2. **¿Por qué `ValidadorPedido` contiene clases que no validan?**
+   Por incurrir en Golden Hammer: se forzó una herramienta conocida a un problema con una naturaleza distinta en lugar de evaluar la solución arquitectónicamente correcta.
+3. **¿Qué ocurre si la regla cambia a combinar promociones en vez de tomar el máximo?**
+   La cadena se vuelve insostenible, obligando a introducir acumuladores y operadores complejos dentro de cada eslabón, degradando la mantenibilidad.
+4. **¿Por qué se eligió inicialmente?**
+   Por inercia técnica e inmediatez ("ya existía y funcionó la última vez").
+
+---
+
+#### 4. Estado Actual del Diseño, Solución Propuesta y Alternativas Descartadas
+* **Estado actual del diseño:** El sistema compila y calcula las tarifas comerciales esperadas, pero incurre en el antipatrón Golden Hammer al forzar el uso de la cadena de validación para resolver reglas comerciales sin orden estricto.
+* **Patrón a aplicar (Próxima acción - Paso 7):** Refactorizar las tres promociones para extraerlas de la cadena y migrarlas al patrón Strategy implementando `EstrategiaDescuento`, coordinadas por `CalculadorDescuentoFinal` mediante composición funcional pura.
+* **Alternativa descartada:** Conservar los eslabones dentro de la cadena `ValidadorPedido` utilizando banderas booleanas o acumuladores condicionales. Se descarta porque perpetúa el Golden Hammer, viola la responsabilidad única de la validación y mantiene mutaciones innecesarias sobre `ContextoPedido`.
+* **Prevención de Lava Flow:** En el Paso 7 se eliminarán físicamente del repositorio las clases obsoletas y el campo mutable mediante `git rm`, documentando su evolución únicamente en el historial de Git
 
 ---
 
